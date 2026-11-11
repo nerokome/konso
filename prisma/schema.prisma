@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlatformRole {
+  USER
+  VERIFIER
+  ADMIN
+}
+
+enum OrganisationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum OrganisationRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id                   String         @id @default(uuid()) @db.Uuid
+  email                String         @unique
+  passwordHash         String
+  platformRole         PlatformRole   @default(USER)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  memberships          Membership[]
+  uploadedDocuments    Document[]     @relation("DocumentUploader")
+  requests             AccessRequest[] @relation("RequestCreator")
+  decisions            AccessRequest[] @relation("RequestDecisionMaker")
+  grants               DocumentAccess[] @relation("AccessGrantor")
+  revocations          DocumentAccess[] @relation("AccessRevoker")
+  verifiedOrganisations Organisation[] @relation("OrganisationVerifier")
+  auditEvents          AuditLog[]
+}
+
+model Organisation {
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String
+  registrationNumber String?             @unique
+  status             OrganisationStatus  @default(PENDING)
+  verificationNote   String?
+  verifiedAt         DateTime?
+  verifiedById       String?             @db.Uuid
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  verifiedBy         User?               @relation("OrganisationVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  memberships        Membership[]
+  documents          Document[]
+  accessGrants       DocumentAccess[]
+  accessRequests     AccessRequest[]
+  auditEvents        AuditLog[]
+
+  @@index([status, createdAt])
+}
+
+model Membership {
+  id             String            @id @default(uuid()) @db.Uuid
+  userId         String            @db.Uuid
+  organisationId String            @db.Uuid
+  role           OrganisationRole  @default(MEMBER)
+  createdAt      DateTime          @default(now())
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation   Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organisationId])
+  @@index([organisationId, role])
+}
+
+model Document {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organisationId     String          @db.Uuid
+  uploadedById       String          @db.Uuid
+  originalName       String
+  storageKey         String          @unique
+  mimeType           String
+  sizeBytes          Int
+  sha256             String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  organisation       Organisation   @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  uploadedBy         User            @relation("DocumentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  accessRequests     AccessRequest[]
+  accessGrants       DocumentAccess[]
+  auditEvents        AuditLog[]
+
+  @@index([organisationId, createdAt])
+}
+
+model AccessRequest {
+  id                       String               @id @default(uuid()) @db.Uuid
+  documentId               String               @db.Uuid
+  requesterOrganisationId  String               @db.Uuid
+  requesterUserId          String               @db.Uuid
+  status                   AccessRequestStatus  @default(PENDING)
+  reason                   String
+  requestedExpiresAt       DateTime
+  decidedAt                DateTime?
+  decidedById              String?              @db.Uuid
+  decisionNote             String?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  document                 Document             @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requesterOrganisation    Organisation         @relation(fields: [requesterOrganisationId], references: [id], onDelete: Restrict)
+  requester                User                 @relation("RequestCreator", fields: [requesterUserId], references: [id], onDelete: Restrict)
+  decidedBy                User?                @relation("RequestDecisionMaker", fields: [decidedById], references: [id], onDelete: SetNull)
+  accessGrant              DocumentAccess?
+  auditEvents              AuditLog[]
+
+  @@index([documentId, status, createdAt])
+  @@index([requesterOrganisationId, status])
+}
+
+model DocumentAccess {
+  id                 String        @id @default(uuid()) @db.Uuid
+  documentId         String        @db.Uuid
+  organisationId     String        @db.Uuid
+  requestId          String?       @unique @db.Uuid
+  grantedById        String        @db.Uuid
+  expiresAt          DateTime
+  revokedAt          DateTime?
+  revokedById        String?       @db.Uuid
+  createdAt          DateTime      @default(now())
+  document           Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organisation       Organisation  @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  request            AccessRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  grantedBy          User          @relation("AccessGrantor", fields: [grantedById], references: [id], onDelete: Restrict)
+  revokedBy          User?         @relation("AccessRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, organisationId])
+  @@index([organisationId, expiresAt, revokedAt])
+}
+
+model AuditLog {
+  id             String         @id @default(uuid()) @db.Uuid
+  actorUserId    String?        @db.Uuid
+  organisationId String?        @db.Uuid
+  documentId     String?        @db.Uuid
+  requestId      String?        @db.Uuid
+  action         String
+  details        Json?
+  createdAt      DateTime       @default(now())
+  actor          User?          @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  organisation   Organisation? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+  document       Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  request        AccessRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@index([organisationId, createdAt])
+  @@index([documentId, createdAt])
+  @@index([requestId, createdAt])
+}
