@@ -64,7 +64,7 @@ Platform verifier accounts are provisioned by an operator after registering a us
 
 Organisation membership roles are `OWNER`, `ADMIN`, `MEMBER`, and `VIEWER`. Only verified organisations can upload/request/download. Files are stored on the API host for this prototype; use private object storage and malware scanning before production deployment.
 
-Register and login return a short-lived JWT and a user object. Passwords are hashed with bcrypt before storage. Keep JWT secrets private, use HTTPS in production, and do not store access tokens in browser local storage for sensitive applications.
+Register and login return a short-lived JWT and a user object. Login also returns the user's `platformRole` and `memberships`, including each organisation's `id`, `name`, `status`, and membership `role`. The seeded super admin is represented by `platformRole: "ADMIN"`; `ADMIN` is the platform role used by the API. Passwords are hashed with bcrypt before storage. Keep JWT secrets private, use HTTPS in production, and do not store access tokens in browser local storage for sensitive applications.
 
 ## Useful commands
 

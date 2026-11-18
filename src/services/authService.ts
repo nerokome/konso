@@ -23,7 +23,16 @@ export async function loginUser(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email } });
   const passwordMatches = user ? await bcrypt.compare(password, user.passwordHash) : false;
   if (!user || !passwordMatches) return null;
-  return { user: { id: user.id, email: user.email }, token: issueToken(user.id) };
+  const memberships = await prisma.membership.findMany({
+    where: { userId: user.id },
+    select: { role: true, organisation: { select: { id: true, name: true, status: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return {
+    user: { id: user.id, email: user.email, platformRole: user.platformRole },
+    memberships,
+    token: issueToken(user.id),
+  };
 }
 
 export async function getCurrentUser(userId: string) {

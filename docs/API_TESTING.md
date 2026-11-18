@@ -60,7 +60,7 @@ Success responses: `{ "status": "ok" }` and `{ "status": "ready" }`. Readiness r
 | `POST /api/auth/login` | None | `email`, `password` |
 | `GET /api/auth/me` | Bearer token | None |
 
-Registration creates a normal platform `USER`; it does not grant verifier or admin permissions. Register/login return a user and JWT. `/me` returns user details and organisation memberships.
+Registration creates a normal platform `USER`; it does not grant verifier or admin permissions. Login returns the user (including `platformRole`), the user's `memberships` (each with its organisation and membership `role`), and a JWT. The seeded super admin has `platformRole: "ADMIN"`. An admin with no organisation memberships receives an empty `memberships` array. `/me` returns user details and organisation memberships.
 
 ### Organisations and verification
 
