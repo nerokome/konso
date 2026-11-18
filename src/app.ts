@@ -8,12 +8,15 @@ import { healthRouter } from "./routes/health.js";
 import { organisationsRouter } from "./routes/organisations.js";
 import { documentsRouter } from "./routes/documents.js";
 import { auditRouter } from "./routes/audit.js";
+import { adminRouter } from "./routes/admin.js";
+import { dashboardRouter } from "./routes/dashboard.js";
+import { invitationsRouter } from "./routes/invitations.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 
 export const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN }));
+app.use(cors({ origin: env.CORS_ORIGINS }));
 app.use(requestLogger);
 app.use(express.json({ limit: "10kb" }));
 app.use(healthRouter);
@@ -21,5 +24,8 @@ app.use("/api/auth", authRouter);
 app.use("/api/organisations", organisationsRouter);
 app.use("/api/documents", documentsRouter);
 app.use("/api/audit", auditRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/dashboard", dashboardRouter);
+app.use("/api/invitations", invitationsRouter);
 app.use((_req, _res, next) => next(new HttpError(404, "Route not found")));
 app.use(errorHandler);

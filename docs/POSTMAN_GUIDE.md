@@ -15,7 +15,7 @@ DATABASE_URL="postgresql://postgres:password@localhost:5432/konso?schema=public"
 JWT_SECRET="replace-with-a-random-secret-at-least-32-characters-long"
 JWT_EXPIRES_IN="15m"
 PORT=5000
-CORS_ORIGIN="http://localhost:3000"
+CORS_ORIGIN="http://localhost:3000,https://sub-link-beige.vercel.app"
 UPLOAD_DIR="./src/resources/static/assets/uploads"
 ```
 
@@ -29,7 +29,7 @@ npm run db:seed   # optional local platform admin for verification
 npm run dev
 ```
 
-The local seed account is `superadmina@example.com` / `12345678`. The seed upserts it as platform `ADMIN`; use it only for local development and change/remove it before exposing an environment. The API connects to PostgreSQL and prepares `UPLOAD_DIR` before listening.
+For local development, set `ADMIN_EMAIL` (optional; defaults to `superadmina@example.com`) and `ADMIN_PASSWORD` in `.env` before running `npm run db:seed`. The seed refuses to run in production. The API connects to PostgreSQL and prepares `UPLOAD_DIR` before listening.
 
 Check `GET {{baseUrl}}/health` for process health and `GET {{baseUrl}}/ready` for database readiness. The former returns `200 {"status":"ok"}`; readiness returns `200 {"status":"ready"}` or `503 {"status":"unavailable"}`.
 
@@ -104,8 +104,10 @@ Success `201`:
 
 ```json
 {
-  "user": { "id": "<user-uuid>", "email": "owner@example.com" },
-  "token": "<jwt>"
+  "user": { "id": "<user-uuid>", "email": "owner@example.com", "platformRole": "USER" },
+  "memberships": [],
+  "token": "<jwt>",
+  "refreshToken": "<opaque-refresh-token>"
 }
 ```
 
@@ -113,7 +115,7 @@ The password is bcrypt hashed. Duplicate email returns `409`.
 
 #### `POST /api/auth/login`
 
-No auth. Same JSON fields. Success `200` returns the same `{ "user", "token" }` shape as registration. Invalid credentials return `401 { "error": "Invalid email or password" }`.
+No auth. Same JSON fields. Success `200` returns `{ user: { id, email, platformRole }, memberships: [{ role, organisation: { id, name, status } }], token, refreshToken }`. Invalid credentials return `401 { "error": "Invalid email or password" }`. Five failed attempts for an email trigger a 15-minute lockout; authentication requests are also limited per IP.
 
 #### `GET /api/auth/me`
 
@@ -121,12 +123,31 @@ Bearer JWT required; no body. Success `200`:
 
 ```json
 {
-  "user": { "id": "<user-uuid>", "email": "owner@example.com", "createdAt": "2026-11-11T10:00:00.000Z" },
+  "user": { "id": "<user-uuid>", "email": "owner@example.com", "platformRole": "USER", "createdAt": "2026-11-11T10:00:00.000Z" },
   "memberships": [
     { "role": "OWNER", "organisation": { "id": "<organisation-uuid>", "name": "Example Ltd", "status": "PENDING" } }
   ]
 }
 ```
+
+#### Refresh and logout
+
+`POST /api/auth/refresh` and `POST /api/auth/logout` require no access token. Send `{ "refreshToken": "<refresh-token>" }`. Refresh returns a new access token and rotated refresh token; logout returns `{ "status": "logged out" }` and revokes the supplied token. A revoked or expired refresh token returns `401` from `/refresh`.
+
+### Platform administration
+
+Platform routes require a Bearer token. `ADMIN` and `VERIFIER` can access organisation oversight, stats, and platform audit. User listing and role changes require `ADMIN`.
+
+| Method | URL | Purpose |
+| --- | --- | --- |
+| GET | `/api/admin/organisations?status=PENDING&q=&limit=50&cursor=` | Search and page through all organisations |
+| GET | `/api/admin/organisations/:id` | Organisation detail, members, document count, verification history |
+| GET | `/api/admin/stats` | Platform totals by status |
+| GET | `/api/admin/audit?organisationId=&action=&from=&to=&limit=50&cursor=` | Filter platform-wide audit events |
+| GET | `/api/admin/users?limit=50&cursor=` | List users (ADMIN only) |
+| PATCH | `/api/admin/users/:id/role` | Set `{ "role": "USER" | "VERIFIER" | "ADMIN" }` (ADMIN only) |
+
+Organisation and audit list responses use `{ "organisations": [], "nextCursor": "..." }` and `{ "events": [], "nextCursor": "..." }`. Role changes return `{ "user": { "id", "email", "platformRole" } }` and create an audit event.
 
 ### Organisations
 
@@ -385,7 +406,7 @@ Express applies Helmet, configured CORS, request logging, and JSON parsing befor
 - `400`: check JSON spelling/case, UUIDs, required upload headers, raw binary body, and ISO 8601 expiry.
 - `409`: change a duplicate email/registration number or reuse the existing request/membership.
 - `/ready` is `503` or startup fails: confirm PostgreSQL is running and `DATABASE_URL` points to the intended database; check server logs.
-- Seed login fails: run `npm run db:seed` against the same database used by the API.
+- Seed login fails: in local development, confirm `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set and run `npm run db:seed` against the same database used by the API. Production provisioning uses a trusted database connection and `npm run db:admin:provision`.
 - If registering again returns conflict, use the corresponding Login request in the collection.
 
 The collection's prepared upload request needs a local file selected in **Body → binary**. Its captured IDs and tokens live in collection variables; reset or update them when changing test accounts or databases.

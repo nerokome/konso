@@ -1,4 +1,5 @@
 import type { RequestHandler } from "express";
+import { DocumentCategory } from "@prisma/client";
 import { HttpError } from "../middleware/errors.js";
 import * as documents from "../services/documentService.js";
 
@@ -16,12 +17,24 @@ export const uploadDocument: RequestHandler = async (req, res) => {
     fileName: req.header("x-file-name") ?? "",
     mimeType,
     content: req.body,
+    title: req.header("x-document-title") ?? undefined,
+    category: (req.header("x-document-category") as DocumentCategory | undefined),
+    department: req.header("x-document-department") ?? undefined,
+    description: req.header("x-document-description") ?? undefined,
+    tags: req.header("x-document-tags")?.split(",").map((tag) => tag.trim()).filter(Boolean),
+    discoverable: req.header("x-document-discoverable") === "true",
   });
   res.status(201).json({ document });
 };
 
 export const listDocuments: RequestHandler = async (req, res) => {
-  res.json({ documents: await documents.listDocuments(req.organisationId!) });
+  const limit = Math.min(Number(req.query.limit ?? 50), 100);
+  res.json(await documents.listDocuments(req.organisationId!, {
+    limit: Number.isInteger(limit) && limit > 0 ? limit : 50,
+    cursor: req.query.cursor as string | undefined,
+    q: req.query.q as string | undefined,
+    sort: req.query.sort === "asc" ? "asc" : "desc",
+  }));
 };
 
 export const downloadDocument: RequestHandler = async (req, res) => {
@@ -30,7 +43,12 @@ export const downloadDocument: RequestHandler = async (req, res) => {
     organisationId: req.organisationId!,
     userId: req.auth!.userId,
   });
-  res.type(result.document.mimeType).attachment(result.document.originalName).send(result.content);
+  const disposition = req.query.disposition === "inline" ? "inline" : "attachment";
+  const asciiName = result.document.originalName.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+  const encodedName = encodeURIComponent(result.document.originalName).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  res.type(result.document.mimeType)
+    .setHeader("Content-Disposition", `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`)
+    .send(result.content);
 };
 
 export const requestAccess: RequestHandler = async (req, res) => {
@@ -46,7 +64,24 @@ export const requestAccess: RequestHandler = async (req, res) => {
 };
 
 export const listAccessRequests: RequestHandler = async (req, res) => {
-  res.json({ requests: await documents.listAccessRequests(req.organisationId!, req.auth!.userId) });
+  const limit = Math.min(Number(req.query.limit ?? 50), 100);
+  res.json(await documents.listAccessRequests(req.organisationId!, req.auth!.userId, {
+    limit: Number.isInteger(limit) && limit > 0 ? limit : 50,
+    cursor: req.query.cursor as string | undefined,
+    q: req.query.q as string | undefined,
+    sort: req.query.sort === "asc" ? "asc" : "desc",
+  }));
+};
+
+export const listSharedDocuments: RequestHandler = async (req, res) => {
+  res.json({ documents: await documents.listSharedDocuments(req.organisationId!, req.auth!.userId) });
+};
+
+export const cancelAccessRequest: RequestHandler = async (req, res) => {
+  const request = await documents.cancelAccessRequest({
+    requestId: req.params.requestId!, organisationId: req.organisationId!, userId: req.auth!.userId,
+  });
+  res.json({ request });
 };
 
 export const decideAccessRequest: RequestHandler = async (req, res) => {
@@ -67,4 +102,9 @@ export const revokeAccess: RequestHandler = async (req, res) => {
     userId: req.auth!.userId,
   });
   res.json({ status: "revoked" });
+};
+
+export const deleteDocument: RequestHandler = async (req, res) => {
+  await documents.deleteDocument({ documentId: req.params.documentId!, userId: req.auth!.userId });
+  res.json({ status: "deleted" });
 };

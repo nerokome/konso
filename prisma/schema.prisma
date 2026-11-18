@@ -19,6 +19,14 @@ enum OrganisationStatus {
   REJECTED
 }
 
+enum OrganisationType {
+  BUSINESS
+  SCHOOL
+  HOSPITAL
+  FINANCIAL
+  GOVERNMENT
+}
+
 enum OrganisationRole {
   OWNER
   ADMIN
@@ -33,11 +41,23 @@ enum AccessRequestStatus {
   CANCELLED
 }
 
+enum DocumentCategory {
+  HR
+  EDUCATION
+  BUSINESS
+  HEALTHCARE
+  FINANCE
+  OTHER
+}
+
 model User {
   id                   String         @id @default(uuid()) @db.Uuid
   email                String         @unique
   passwordHash         String
   platformRole         PlatformRole   @default(USER)
+  firstName            String?
+  lastName             String?
+  avatarUrl            String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
   memberships          Membership[]
@@ -48,12 +68,46 @@ model User {
   revocations          DocumentAccess[] @relation("AccessRevoker")
   verifiedOrganisations Organisation[] @relation("OrganisationVerifier")
   auditEvents          AuditLog[]
+  refreshTokens        RefreshToken[]
+  invitationsCreated  Invitation[]    @relation("InvitationCreator")
+  invitationsAccepted Invitation[]    @relation("InvitationAccepter")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Invitation {
+  id             String            @id @default(uuid()) @db.Uuid
+  organisationId String            @db.Uuid
+  invitedById    String            @db.Uuid
+  acceptedById   String?           @db.Uuid
+  email          String
+  role           OrganisationRole
+  tokenHash      String            @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  organisation   Organisation      @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  invitedBy      User              @relation("InvitationCreator", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy     User?             @relation("InvitationAccepter", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([organisationId, email, expiresAt])
 }
 
 model Organisation {
   id                 String              @id @default(uuid()) @db.Uuid
   name               String
   registrationNumber String?             @unique
+  type               OrganisationType?
   status             OrganisationStatus  @default(PENDING)
   verificationNote   String?
   verifiedAt         DateTime?
@@ -62,6 +116,7 @@ model Organisation {
   updatedAt          DateTime            @updatedAt
   verifiedBy         User?               @relation("OrganisationVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
   memberships        Membership[]
+  invitations        Invitation[]
   documents          Document[]
   accessGrants       DocumentAccess[]
   accessRequests     AccessRequest[]
@@ -92,6 +147,13 @@ model Document {
   mimeType           String
   sizeBytes          Int
   sha256             String
+  title              String?
+  category           DocumentCategory?
+  department         String?
+  description        String?
+  tags               String[]        @default([])
+  discoverable       Boolean         @default(false)
+  deletedAt          DateTime?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   organisation       Organisation   @relation(fields: [organisationId], references: [id], onDelete: Restrict)
@@ -135,6 +197,7 @@ model DocumentAccess {
   grantedById        String        @db.Uuid
   expiresAt          DateTime
   revokedAt          DateTime?
+  expiredAt          DateTime?
   revokedById        String?       @db.Uuid
   createdAt          DateTime      @default(now())
   document           Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -145,6 +208,7 @@ model DocumentAccess {
 
   @@unique([documentId, organisationId])
   @@index([organisationId, expiresAt, revokedAt])
+  @@index([expiredAt, expiresAt])
 }
 
 model AuditLog {

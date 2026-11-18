@@ -18,7 +18,10 @@ const port = Number(portValue);
 const databaseUrl = process.env.DATABASE_URL ?? "";
 const jwtSecret = process.env.JWT_SECRET ?? "";
 const jwtExpiresIn = process.env.JWT_EXPIRES_IN ?? "15m";
-const corsOrigin = process.env.CORS_ORIGIN ?? "http://localhost:3000";
+const corsOrigins = (process.env.CORS_ORIGIN ?? "http://localhost:3000,https://sub-link-beige.vercel.app")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const uploadDir = process.env.UPLOAD_DIR ?? "./src/resources/static/assets/uploads";
 const errors: string[] = [];
 
@@ -37,8 +40,8 @@ if (jwtSecret.length < 32) {
 if (!tokenLifetimes.includes(jwtExpiresIn as (typeof tokenLifetimes)[number])) {
   errors.push("JWT_EXPIRES_IN must be one of: 5m, 15m, 30m, 1h, 2h");
 }
-if (!isUrl(corsOrigin)) {
-  errors.push("CORS_ORIGIN must be a valid URL");
+if (corsOrigins.length === 0 || corsOrigins.some((origin) => !isUrl(origin))) {
+  errors.push("CORS_ORIGIN must contain one or more comma-separated valid URLs");
 }
 
 if (errors.length > 0) {
@@ -52,6 +55,6 @@ export const env = {
   DATABASE_URL: databaseUrl,
   JWT_SECRET: jwtSecret,
   JWT_EXPIRES_IN: jwtExpiresIn as (typeof tokenLifetimes)[number],
-  CORS_ORIGIN: corsOrigin,
+  CORS_ORIGINS: corsOrigins,
   UPLOAD_DIR: uploadDir,
 };

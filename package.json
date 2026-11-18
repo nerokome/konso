@@ -11,10 +11,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsx --test tests/admin.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:admin:provision": "tsx prisma/provisionAdmin.ts",
+    "db:production:maintenance": "tsx prisma/productionMaintenance.ts",
     "db:studio": "prisma studio"
   },
   "prisma": {

@@ -11,13 +11,17 @@
     { "key": "ownerPassword", "value": "OwnerPass123" },
     { "key": "requesterEmail", "value": "postman-requester@example.com" },
     { "key": "requesterPassword", "value": "RequesterPass123" },
+    { "key": "adminEmail", "value": "" },
+    { "key": "adminPassword", "value": "" },
+    { "key": "refreshToken", "value": "" },
     { "key": "ownerToken", "value": "" },
     { "key": "requesterToken", "value": "" },
     { "key": "adminToken", "value": "" },
     { "key": "ownerOrganisationId", "value": "" },
     { "key": "requesterOrganisationId", "value": "" },
     { "key": "documentId", "value": "" },
-    { "key": "accessRequestId", "value": "" }
+    { "key": "accessRequestId", "value": "" },
+    { "key": "userId", "value": "" }
   ],
   "item": [
     {
@@ -52,10 +56,23 @@
         },
         {
           "name": "Login Super Admin",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 200) pm.collectionVariables.set('adminToken', pm.response.json().token);"] } }],
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"superadmina@example.com\",\n  \"password\": \"12345678\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/login" }
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 200) { pm.collectionVariables.set('adminToken', pm.response.json().token); pm.collectionVariables.set('refreshToken', pm.response.json().refreshToken); }"] } }],
+          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/login" }
         },
+        { "name": "Refresh session (rotates refresh token)", "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 200) { pm.collectionVariables.set('adminToken', pm.response.json().token); pm.collectionVariables.set('refreshToken', pm.response.json().refreshToken); }"] } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/refresh" } },
+        { "name": "Logout (revokes refresh token)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/auth/logout" } },
         { "name": "Current Owner User", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/auth/me" } }
+      ]
+    },
+    {
+      "name": "Platform administration",
+      "item": [
+        { "name": "List all organisations", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/admin/organisations?limit=50" } },
+        { "name": "Organisation detail", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/admin/organisations/{{ownerOrganisationId}}" } },
+        { "name": "Platform stats", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/admin/stats" } },
+        { "name": "Platform audit", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/admin/audit?limit=50" } },
+        { "name": "List users (ADMIN only)", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/admin/users?limit=50" } },
+        { "name": "Change a user's platform role (ADMIN only)", "request": { "method": "PATCH", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"VERIFIER\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/admin/users/{{userId}}/role" } }
       ]
     },
     {
@@ -90,12 +107,17 @@
         {
           "name": "Get Owner Organisation",
           "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/organisations/{{ownerOrganisationId}}" }
-        }
+        },
+        { "name": "List organisation members", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/organisations/{{ownerOrganisationId}}/members" } },
+        { "name": "Change member role", "request": { "method": "PATCH", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"role\": \"MEMBER\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/api/organisations/{{ownerOrganisationId}}/members/{{userId}}" } },
+        { "name": "Remove organisation member", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "url": "{{baseUrl}}/api/organisations/{{ownerOrganisationId}}/members/{{userId}}" } }
       ]
     },
     {
       "name": "4. Documents and access",
       "item": [
+        { "name": "Shared with me", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{requesterToken}}", "type": "string" }] }, "header": [{ "key": "x-organisation-id", "value": "{{requesterOrganisationId}}" }], "url": "{{baseUrl}}/api/documents/shared" } },
+        { "name": "Cancel pending access request", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{requesterToken}}", "type": "string" }] }, "header": [{ "key": "x-organisation-id", "value": "{{requesterOrganisationId}}" }], "url": "{{baseUrl}}/api/documents/access-requests/{{accessRequestId}}" } },
         {
           "name": "Upload PDF (select a local PDF in Body → binary)",
           "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }] }, "header": [{ "key": "x-organisation-id", "value": "{{ownerOrganisationId}}" }, { "key": "x-file-name", "value": "sample.pdf" }, { "key": "x-file-content-type", "value": "application/pdf" }, { "key": "Content-Type", "value": "application/octet-stream" }], "body": { "mode": "file", "file": { "src": "" } }, "url": "{{baseUrl}}/api/documents" }

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { AccessRequestStatus, OrganisationRole, OrganisationStatus } from "@prisma/client";
+import { AccessRequestStatus, DocumentCategory, OrganisationRole, OrganisationStatus } from "@prisma/client";
 import { env } from "../config/env.js";
 import { prisma } from "../db/prisma.js";
 import { HttpError } from "../middleware/errors.js";
@@ -19,12 +19,23 @@ type UploadedDocument = {
   mimeType: string;
   sizeBytes: number;
   sha256: string;
+  title: string | null;
+  category: DocumentCategory | null;
+  department: string | null;
+  description: string | null;
+  tags: string[];
+  discoverable: boolean;
   createdAt: Date;
 };
 
-export async function uploadDocument(input: { organisationId: string; userId: string; fileName: string; mimeType: string; content: Buffer }) {
+export async function uploadDocument(input: {
+  organisationId: string; userId: string; fileName: string; mimeType: string; content: Buffer;
+  title?: string; category?: DocumentCategory; department?: string; description?: string; tags?: string[]; discoverable?: boolean;
+}) {
   await requireVerifiedOrganisation(input.organisationId);
-  const originalName = path.basename(input.fileName).replace(/[\r\n\0]/g, "").slice(0, 255);
+  let decodedFileName = input.fileName;
+  try { decodedFileName = decodeURIComponent(input.fileName); } catch { /* Keep the original header when it is not valid percent encoding. */ }
+  const originalName = path.basename(decodedFileName).replace(/[\r\n\0]/g, "").slice(0, 255);
   if (!input.content.length || !allowedMimeTypes.has(input.mimeType) || !originalName) {
     throw new HttpError(400, "Send non-empty octet-stream bytes with x-file-name and x-file-content-type (PDF, PNG, JPEG, or plain text)");
   }
@@ -43,8 +54,14 @@ export async function uploadDocument(input: { organisationId: string; userId: st
         mimeType: input.mimeType,
         sizeBytes: input.content.length,
         sha256: createHash("sha256").update(input.content).digest("hex"),
+        title: input.title || originalName,
+        category: input.category,
+        department: input.department,
+        description: input.description,
+        tags: input.tags ?? [],
+        discoverable: input.discoverable ?? false,
       },
-      select: { id: true, organisationId: true, originalName: true, mimeType: true, sizeBytes: true, sha256: true, createdAt: true },
+      select: { id: true, organisationId: true, originalName: true, mimeType: true, sizeBytes: true, sha256: true, title: true, category: true, department: true, description: true, tags: true, discoverable: true, createdAt: true },
     });
   } catch (error) {
     await unlink(path.join(uploadRoot, storageKey)).catch(() => undefined);
@@ -54,18 +71,26 @@ export async function uploadDocument(input: { organisationId: string; userId: st
   return document;
 }
 
-export async function listDocuments(organisationId: string) {
-  return prisma.document.findMany({
-    where: { organisationId },
-    select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true },
-    orderBy: { createdAt: "desc" },
+export async function listDocuments(organisationId: string, options: { limit: number; cursor?: string; q?: string; sort: "asc" | "desc" }) {
+  const rows = await prisma.document.findMany({
+    where: { organisationId, deletedAt: null, ...(options.q ? { OR: [
+      { originalName: { contains: options.q, mode: "insensitive" } },
+      { title: { contains: options.q, mode: "insensitive" } },
+      { department: { contains: options.q, mode: "insensitive" } },
+    ] } : {}) },
+    take: options.limit + 1, ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
+    select: { id: true, originalName: true, title: true, category: true, department: true, description: true, tags: true, discoverable: true, mimeType: true, sizeBytes: true, createdAt: true },
+    orderBy: [{ createdAt: options.sort }, { id: options.sort }],
   });
+  const hasMore = rows.length > options.limit;
+  const documents = rows.slice(0, options.limit);
+  return { documents, ...(hasMore ? { nextCursor: documents.at(-1)?.id } : {}) };
 }
 
 export async function downloadDocument(input: { documentId: string; organisationId: string; userId: string }) {
   await requireVerifiedOrganisation(input.organisationId);
   const document = await prisma.document.findUnique({ where: { id: input.documentId } });
-  if (!document) throw new HttpError(404, "Document not found");
+  if (!document || document.deletedAt) throw new HttpError(404, "Document not found");
   const ownsDocument = document.organisationId === input.organisationId;
   if (!ownsDocument) {
     const grant = await prisma.documentAccess.findFirst({
@@ -98,9 +123,9 @@ export async function requestDocumentAccess(input: {
   }
   const document = await prisma.document.findUnique({
     where: { id: input.documentId },
-    select: { id: true, organisationId: true, organisation: { select: { status: true } } },
+    select: { id: true, organisationId: true, deletedAt: true, organisation: { select: { status: true } } },
   });
-  if (!document) throw new HttpError(404, "Document not found");
+  if (!document || document.deletedAt) throw new HttpError(404, "Document not found");
   if (document.organisation.status !== OrganisationStatus.VERIFIED) throw new HttpError(403, "Document owner organisation is not verified");
   if (document.organisationId === input.organisationId) throw new HttpError(400, "Your organisation already owns this document");
   const currentAccess = await prisma.documentAccess.findFirst({
@@ -124,17 +149,64 @@ export async function requestDocumentAccess(input: {
   return request;
 }
 
-export async function listAccessRequests(organisationId: string, userId: string) {
+export async function listAccessRequests(organisationId: string, userId: string, options: { limit: number; cursor?: string; q?: string; sort: "asc" | "desc" }) {
   const membership = await membershipFor(userId, organisationId);
   if (!membership) throw new HttpError(403, "You are not a member of that organisation");
-  return prisma.accessRequest.findMany({
-    where: { OR: [{ requesterOrganisationId: organisationId }, { document: { organisationId } }] },
+  const rows = await prisma.accessRequest.findMany({
+    where: {
+      OR: [{ requesterOrganisationId: organisationId }, { document: { organisationId } }],
+      document: { deletedAt: null, ...(options.q ? { OR: [
+        { title: { contains: options.q, mode: "insensitive" } },
+        { originalName: { contains: options.q, mode: "insensitive" } },
+      ] } : {}) },
+    },
+    take: options.limit + 1, ...(options.cursor ? { cursor: { id: options.cursor }, skip: 1 } : {}),
     include: {
       document: { select: { id: true, originalName: true, organisationId: true } },
       requesterOrganisation: { select: { id: true, name: true } },
+      accessGrant: { select: { revokedAt: true, expiresAt: true } },
     },
+    orderBy: [{ createdAt: options.sort }, { id: options.sort }],
+  });
+  const hasMore = rows.length > options.limit;
+  const requests = rows.slice(0, options.limit);
+  const now = new Date();
+  const data = requests.map(({ accessGrant, ...request }) => ({
+    ...request,
+    grant: accessGrant ? {
+      status: accessGrant.revokedAt ? "REVOKED" : accessGrant.expiresAt <= now ? "EXPIRED" : "ACTIVE",
+      revokedAt: accessGrant.revokedAt,
+      expiresAt: accessGrant.expiresAt,
+    } : null,
+  }));
+  return { requests: data, ...(hasMore ? { nextCursor: requests.at(-1)?.id } : {}) };
+}
+
+export async function listSharedDocuments(organisationId: string, userId: string) {
+  const membership = await membershipFor(userId, organisationId);
+  if (!membership) throw new HttpError(403, "You are not a member of that organisation");
+  const grants = await prisma.documentAccess.findMany({
+    where: { organisationId, revokedAt: null, expiresAt: { gt: new Date() }, document: { deletedAt: null } },
+    include: { document: { select: { id: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true, organisation: { select: { id: true, name: true } } } } },
     orderBy: { createdAt: "desc" },
   });
+  return grants.map(({ document, expiresAt }) => ({ ...document, expiresAt }));
+}
+
+export async function cancelAccessRequest(input: { requestId: string; organisationId: string; userId: string }) {
+  const request = await prisma.accessRequest.findUnique({ where: { id: input.requestId }, include: { document: { select: { deletedAt: true } } } });
+  if (!request) throw new HttpError(404, "Access request not found");
+  if (request.document.deletedAt) throw new HttpError(404, "Document not found");
+  if (request.requesterOrganisationId !== input.organisationId) throw new HttpError(403, "You cannot cancel another organisation's request");
+  const membership = await membershipFor(input.userId, input.organisationId);
+  const canManageRequests = membership?.role === OrganisationRole.OWNER || membership?.role === OrganisationRole.ADMIN;
+  if (request.requesterUserId !== input.userId && !canManageRequests) {
+    throw new HttpError(403, "Only the requester or an organisation owner/admin can cancel this request");
+  }
+  if (request.status !== AccessRequestStatus.PENDING) throw new HttpError(409, "Only pending requests can be cancelled");
+  const updated = await prisma.accessRequest.update({ where: { id: request.id }, data: { status: AccessRequestStatus.CANCELLED } });
+  await recordAudit({ actorUserId: input.userId, organisationId: input.organisationId, documentId: request.documentId, requestId: request.id, action: "ACCESS_REQUEST_CANCELLED" });
+  return updated;
 }
 
 export async function decideAccessRequest(input: {
@@ -142,6 +214,7 @@ export async function decideAccessRequest(input: {
 }) {
   const request = await prisma.accessRequest.findUnique({ where: { id: input.requestId }, include: { document: true } });
   if (!request) throw new HttpError(404, "Access request not found");
+  if (request.document.deletedAt) throw new HttpError(404, "Document not found");
   const membership = await membershipFor(input.userId, request.document.organisationId);
   if (!membership || !approverRoles.includes(membership.role)) {
     throw new HttpError(403, "Only the document owner organisation's admins can decide requests");
@@ -177,22 +250,22 @@ export async function decideAccessRequest(input: {
         },
       });
     }
-    return tx.accessRequest.findUniqueOrThrow({ where: { id: request.id } });
-  });
-  await recordAudit({
-    actorUserId: input.userId,
-    organisationId: request.document.organisationId,
-    documentId: request.documentId,
-    requestId: request.id,
-    action: `ACCESS_REQUEST_${input.decision}`,
-    details: { requesterOrganisationId: request.requesterOrganisationId },
+    const updated = await tx.accessRequest.findUniqueOrThrow({ where: { id: request.id } });
+    await tx.auditLog.create({
+      data: {
+        actorUserId: input.userId, organisationId: request.document.organisationId, documentId: request.documentId,
+        requestId: request.id, action: `ACCESS_REQUEST_${input.decision}`,
+        details: { requesterOrganisationId: request.requesterOrganisationId, decisionNote: input.note ?? null, previousStatus: request.status },
+      },
+    });
+    return updated;
   });
   return updated;
 }
 
 export async function revokeAccess(input: { documentId: string; organisationId: string; userId: string }) {
   const document = await prisma.document.findUnique({ where: { id: input.documentId } });
-  if (!document) throw new HttpError(404, "Document not found");
+  if (!document || document.deletedAt) throw new HttpError(404, "Document not found");
   const membership = await membershipFor(input.userId, document.organisationId);
   if (!membership || !approverRoles.includes(membership.role)) {
     throw new HttpError(403, "Only the document owner organisation's admins can revoke access");
@@ -201,13 +274,28 @@ export async function revokeAccess(input: { documentId: string; organisationId: 
     where: { documentId_organisationId: { documentId: document.id, organisationId: input.organisationId } },
   });
   if (!grant || grant.revokedAt || grant.expiresAt <= new Date()) throw new HttpError(404, "Active access grant not found");
-  await prisma.documentAccess.update({ where: { id: grant.id }, data: { revokedAt: new Date(), revokedById: input.userId } });
-  await recordAudit({
-    actorUserId: input.userId,
-    organisationId: document.organisationId,
-    documentId: document.id,
-    action: "DOCUMENT_ACCESS_REVOKED",
-    details: { organisationId: input.organisationId },
+  const revokedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.documentAccess.update({ where: { id: grant.id }, data: { revokedAt, revokedById: input.userId } });
+    await tx.auditLog.create({
+      data: { actorUserId: input.userId, organisationId: document.organisationId, documentId: document.id, action: "DOCUMENT_ACCESS_REVOKED", details: { organisationId: input.organisationId, revokedAt: revokedAt.toISOString() } },
+    });
+  });
+}
+
+export async function deleteDocument(input: { documentId: string; userId: string }) {
+  const document = await prisma.document.findUnique({ where: { id: input.documentId } });
+  if (!document || document.deletedAt) throw new HttpError(404, "Document not found");
+  const membership = await membershipFor(input.userId, document.organisationId);
+  if (!membership || !approverRoles.includes(membership.role)) throw new HttpError(403, "Only the document owner organisation's admins can delete documents");
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.documentAccess.updateMany({ where: { documentId: document.id, revokedAt: null }, data: { revokedAt: now, revokedById: input.userId } });
+    await tx.document.update({ where: { id: document.id }, data: { deletedAt: now } });
+    await tx.auditLog.create({ data: {
+      actorUserId: input.userId, organisationId: document.organisationId, documentId: document.id,
+      action: "DOCUMENT_DELETED", details: { revokedGrantsAt: now.toISOString() },
+    } });
   });
 }
 
@@ -216,4 +304,12 @@ export async function requireVerifiedOrganisation(organisationId: string): Promi
   if (!organisation || organisation.status !== OrganisationStatus.VERIFIED) {
     throw new HttpError(403, "Organisation must be verified for document operations");
   }
+}
+
+export async function markExpiredGrants(): Promise<number> {
+  const result = await prisma.documentAccess.updateMany({
+    where: { expiredAt: null, revokedAt: null, expiresAt: { lte: new Date() } },
+    data: { expiredAt: new Date() },
+  });
+  return result.count;
 }

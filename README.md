@@ -48,8 +48,15 @@ All routes below require `Authorization: Bearer <token>`. Organisation-scoped ro
 - `POST /api/organisations/:organisationId/members` — add a registered user by email with role `ADMIN`, `MEMBER`, or `VIEWER`. Owners can appoint admins; owners and admins can add members/viewers.
 - `GET /api/organisations/verification/pending` — list pending applications for platform verifiers/admins.
 - `PATCH /api/organisations/:organisationId/verification` — platform verifier/admin sets `{ "status": "VERIFIED" }` or `{ "status": "REJECTED", "note": "..." }`.
+- `/api/admin/organisations`, `/api/admin/stats`, and `/api/admin/audit` — platform overview endpoints for administrators and verifiers; `GET /api/admin/users` and `PATCH /api/admin/users/:id/role` are administrator-only.
 
 Platform verifier accounts are provisioned by an operator after registering a user, for example with `UPDATE "User" SET "platformRole" = 'VERIFIER' WHERE email = 'verifier@example.com';`. There is intentionally no public endpoint for granting platform privileges.
+
+The development seed refuses to run in production. To provision or rotate the platform administrator with a trusted database connection, set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (at least 12 characters) and run `npm run db:admin:provision`. Keep these values out of source control and logs.
+
+`npm run db:production:maintenance` performs a read-only inventory of the specific frontend test accounts and organisations listed in `prisma/productionMaintenance.ts`. Adding `-- --apply` deletes only those exact accounts and organisations (plus linked access data) and rotates `superadmina@example.com` to a generated password printed once in the command output. Run it only with the intended production database URL and store the generated password securely.
+
+Admin API integration tests are in `tests/admin.test.ts`. Run them only against a disposable migrated database by setting `TEST_DATABASE_URL`, then run `npm test`.
 
 ### Documents and access requests
 
@@ -64,7 +71,7 @@ Platform verifier accounts are provisioned by an operator after registering a us
 
 Organisation membership roles are `OWNER`, `ADMIN`, `MEMBER`, and `VIEWER`. Only verified organisations can upload/request/download. Files are stored on the API host for this prototype; use private object storage and malware scanning before production deployment.
 
-Register and login return a short-lived JWT and a user object. Login also returns the user's `platformRole` and `memberships`, including each organisation's `id`, `name`, `status`, and membership `role`. The seeded super admin is represented by `platformRole: "ADMIN"`; `ADMIN` is the platform role used by the API. Passwords are hashed with bcrypt before storage. Keep JWT secrets private, use HTTPS in production, and do not store access tokens in browser local storage for sensitive applications.
+Register and login return a short-lived JWT, a 30-day rotating refresh token, and the user object. Login also returns the user's `platformRole` and `memberships`, including each organisation's `id`, `name`, `status`, and membership `role`. The seeded super admin is represented by `platformRole: "ADMIN"`; `ADMIN` is the platform role used by the API. Passwords are hashed with bcrypt before storage. Keep JWT secrets private, use HTTPS in production, and do not store access tokens in browser local storage for sensitive applications.
 
 ## Useful commands
 

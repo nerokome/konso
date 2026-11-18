@@ -4,6 +4,7 @@ import { prisma } from "./db/prisma.js";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { logger } from "./config/logger.js";
+import { markExpiredGrants } from "./services/documentService.js";
 
 async function start(): Promise<void> {
   await prisma.$connect();
@@ -14,6 +15,15 @@ async function start(): Promise<void> {
   const server = app.listen(env.PORT, () => {
     logger.info(`Server started on port ${env.PORT} 🔥🔥🔥`);
   });
+
+  const expireGrants = (): void => {
+    void markExpiredGrants().then((count) => {
+      if (count > 0) logger.info(`Marked ${count} access grants as expired`);
+    }).catch((error: unknown) => logger.error(`Failed to mark expired access grants: ${String(error)}`));
+  };
+  expireGrants();
+  const expiryTimer = setInterval(expireGrants, 60 * 60 * 1000);
+  expiryTimer.unref();
 
   server.on("error", (error: NodeJS.ErrnoException) => {
     logger.error(`Failed to listen on port ${env.PORT}: ${error.message}`);
@@ -26,6 +36,7 @@ async function start(): Promise<void> {
   const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) return;
     shuttingDown = true;
+    clearInterval(expiryTimer);
     logger.info(`${signal} received; closing HTTP server`);
 
     server.close((error) => {
