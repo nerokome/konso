@@ -4,7 +4,7 @@ import { prisma } from "./db/prisma.js";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { logger } from "./config/logger.js";
-import { markExpiredGrants } from "./services/documentService.js";
+import { markExpiredGrants, notifyExpiringGrants } from "./services/documentService.js";
 
 async function start(): Promise<void> {
   await prisma.$connect();
@@ -17,9 +17,10 @@ async function start(): Promise<void> {
   });
 
   const expireGrants = (): void => {
-    void markExpiredGrants().then((count) => {
+    void Promise.all([markExpiredGrants(), notifyExpiringGrants()]).then(([count, reminders]) => {
       if (count > 0) logger.info(`Marked ${count} access grants as expired`);
-    }).catch((error: unknown) => logger.error(`Failed to mark expired access grants: ${String(error)}`));
+      if (reminders > 0) logger.info(`Sent expiry reminders for ${reminders} access grants`);
+    }).catch((error: unknown) => logger.error(`Failed to process access grant expiry: ${String(error)}`));
   };
   expireGrants();
   const expiryTimer = setInterval(expireGrants, 60 * 60 * 1000);

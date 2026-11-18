@@ -12,6 +12,7 @@ import { adminRouter } from "./routes/admin.js";
 import { dashboardRouter } from "./routes/dashboard.js";
 import { invitationsRouter } from "./routes/invitations.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { notificationsRouter } from "./routes/notifications.js";
 
 export const app = express();
 
@@ -27,5 +28,6 @@ app.use("/api/audit", auditRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/invitations", invitationsRouter);
+app.use("/api/notifications", notificationsRouter);
 app.use((_req, _res, next) => next(new HttpError(404, "Route not found")));
 app.use(errorHandler);

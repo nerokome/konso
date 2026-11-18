@@ -2,6 +2,8 @@ import { OrganisationRole, OrganisationStatus, OrganisationType } from "@prisma/
 import { prisma } from "../db/prisma.js";
 import { HttpError } from "../middleware/errors.js";
 import { recordAudit } from "./audit.js";
+import { notifyOrganisation } from "./notificationService.js";
+import { dispatchWebhookEvent } from "./webhookService.js";
 
 export async function createOrganisation(input: { name: string; registrationNumber?: string; ownerId: string }) {
   const organisation = await prisma.organisation.create({
@@ -155,6 +157,8 @@ export async function updateVerification(input: {
     action: `ORGANISATION_${input.status}`,
     details: { note: organisation.verificationNote, reasonCode: input.reasonCode ?? null, previousStatus: previous.status },
   });
+  await notifyOrganisation({ organisationId: organisation.id, eventKey: `verification:${organisation.id}:${organisation.updatedAt.toISOString()}`, type: "ORGANISATION_VERIFICATION_UPDATED", title: `Organisation ${input.status.toLowerCase()}`, message: input.note || `Your organisation verification status is ${input.status.toLowerCase()}.`, data: { status: input.status, reasonCode: input.reasonCode ?? null } });
+  void dispatchWebhookEvent({ organisationId: organisation.id, event: "ORGANISATION_VERIFICATION_UPDATED", data: { organisationId: organisation.id, status: input.status, reasonCode: input.reasonCode ?? null } });
   return organisation;
 }
 

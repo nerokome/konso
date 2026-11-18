@@ -63,3 +63,30 @@ Uploads can set `x-document-title`, `x-document-category` (`HR`, `EDUCATION`, `B
 ## Verification
 
 `PATCH /api/organisations/:organisationId/verification` accepts `status` (`VERIFIED` or `REJECTED`), optional `note`, and optional `reasonCode`. The audit record captures the note, reason code, and previous status.
+
+## Notifications
+
+`GET /api/notifications?limit=50&cursor=<uuid>&unreadOnly=true` returns the authenticated user's notifications and optional `nextCursor`. `PATCH /api/notifications/read` accepts `{ "ids": ["<notification UUID>"] }` and marks only that user's notifications as read. Notifications are created for new access requests, decisions, verification results, and grants expiring in seven days.
+
+Both routes require a Bearer JWT. Mark-read validates 1-100 UUIDs and returns `{ "updated": 1 }`. Errors include `401` for missing/invalid auth and `400` for invalid notification IDs.
+
+## Webhooks
+
+Organisation owners/admins can manage hooks at `/api/organisations/:organisationId/webhooks`. `POST` accepts `{ "url": "https://example.com/hook", "events": ["ACCESS_REQUEST_CREATED"] }` and returns `{ "webhook", "secret" }`; the secret is shown only once. `GET` returns `{ "webhooks": [...] }` without secrets. `DELETE /api/organisations/:organisationId/webhooks/:webhookId` removes a hook. Supported event values are `ACCESS_REQUEST_CREATED`, `ACCESS_REQUEST_DECIDED`, and `ORGANISATION_VERIFICATION_UPDATED`.
+
+All webhook-management routes require a Bearer JWT; `organisationId` is a UUID in the path, so `x-organisation-id` is not needed. Create accepts an HTTPS URL and one or more supported event names. Example response:
+
+```json
+{
+  "webhook": { "id": "<uuid>", "organisationId": "<uuid>", "url": "https://example.com/hook", "events": ["ACCESS_REQUEST_CREATED"], "active": true, "createdAt": "<ISO-8601>" },
+  "secret": "<shown once>"
+}
+```
+
+Errors include `400` for invalid URLs/events, `401` for missing/invalid auth, `403` when the caller is not an organisation owner/admin, and `404` when deleting an unknown webhook.
+
+Webhook requests include `X-Konso-Event` and `X-Konso-Signature: sha256=<hex>`. Verify the HMAC-SHA256 signature against the exact raw request body using the secret. Delivery uses HTTPS and a five-second timeout; failed deliveries are not currently retried.
+
+## Password reset and email
+
+Authentication does not send SMTP mail or email verification codes. Password changes require the authenticated current password through `POST /api/auth/change-password`. Forgot/reset-password endpoints are not available because a secure reset flow requires a trusted token delivery channel.

@@ -71,6 +71,8 @@ model User {
   refreshTokens        RefreshToken[]
   invitationsCreated  Invitation[]    @relation("InvitationCreator")
   invitationsAccepted Invitation[]    @relation("InvitationAccepter")
+  notifications       Notification[]
+  webhooksCreated    OrganisationWebhook[]
 }
 
 model RefreshToken {
@@ -121,6 +123,8 @@ model Organisation {
   accessGrants       DocumentAccess[]
   accessRequests     AccessRequest[]
   auditEvents        AuditLog[]
+  notifications      Notification[]
+  webhooks           OrganisationWebhook[]
 
   @@index([status, createdAt])
 }
@@ -228,4 +232,37 @@ model AuditLog {
   @@index([organisationId, createdAt])
   @@index([documentId, createdAt])
   @@index([requestId, createdAt])
+}
+
+model Notification {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @db.Uuid
+  organisationId String?      @db.Uuid
+  eventKey       String       @unique
+  type           String
+  title          String
+  message        String
+  data           Json?
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation   Organisation? @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model OrganisationWebhook {
+  id             String       @id @default(uuid()) @db.Uuid
+  organisationId String       @db.Uuid
+  createdById    String       @db.Uuid
+  url            String
+  encryptedSecret String
+  events         String[]
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organisation   Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([organisationId, active])
 }

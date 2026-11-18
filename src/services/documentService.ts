@@ -7,6 +7,8 @@ import { prisma } from "../db/prisma.js";
 import { HttpError } from "../middleware/errors.js";
 import { membershipFor } from "../middleware/permissions.js";
 import { recordAudit } from "./audit.js";
+import { notifyOrganisation, notifyUsers } from "./notificationService.js";
+import { dispatchWebhookEvent } from "./webhookService.js";
 
 const uploadRoot = path.resolve(env.UPLOAD_DIR);
 const allowedMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "text/plain"]);
@@ -146,6 +148,8 @@ export async function requestDocumentAccess(input: {
     },
   });
   await recordAudit({ actorUserId: input.userId, organisationId: input.organisationId, documentId: document.id, requestId: request.id, action: "ACCESS_REQUESTED" });
+  await notifyOrganisation({ organisationId: document.organisationId, eventKey: `access-request:${request.id}`, type: "ACCESS_REQUEST_CREATED", title: "New document access request", message: "An organisation requested access to a document.", data: { requestId: request.id, documentId: document.id } });
+  void dispatchWebhookEvent({ organisationId: document.organisationId, event: "ACCESS_REQUEST_CREATED", data: { requestId: request.id, documentId: document.id, requesterOrganisationId: input.organisationId } });
   return request;
 }
 
@@ -260,6 +264,8 @@ export async function decideAccessRequest(input: {
     });
     return updated;
   });
+  await notifyUsers([{ userId: request.requesterUserId, organisationId: request.requesterOrganisationId, eventKey: `access-decision:${updated.id}:${request.requesterUserId}`, type: "ACCESS_REQUEST_DECIDED", title: `Access request ${input.decision.toLowerCase()}`, message: input.note || `Your document access request was ${input.decision.toLowerCase()}.`, data: { requestId: updated.id, decision: input.decision } }]);
+  void dispatchWebhookEvent({ organisationId: request.document.organisationId, event: "ACCESS_REQUEST_DECIDED", data: { requestId: updated.id, decision: input.decision, requesterOrganisationId: request.requesterOrganisationId } });
   return updated;
 }
 
@@ -312,4 +318,20 @@ export async function markExpiredGrants(): Promise<number> {
     data: { expiredAt: new Date() },
   });
   return result.count;
+}
+
+export async function notifyExpiringGrants(): Promise<number> {
+  const now = new Date();
+  const from = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const to = new Date(from.getTime() + 60 * 60 * 1000);
+  const grants = await prisma.documentAccess.findMany({
+    where: { revokedAt: null, expiredAt: null, expiresAt: { gte: from, lt: to } },
+    include: { document: { select: { organisationId: true, title: true, originalName: true } }, organisation: { select: { id: true } }, request: { select: { requesterUserId: true } } },
+  });
+  for (const grant of grants) {
+    const label = grant.document.title || grant.document.originalName;
+    await notifyOrganisation({ organisationId: grant.document.organisationId, roles: [OrganisationRole.OWNER, OrganisationRole.ADMIN], eventKey: `grant-expiry-owner:${grant.id}`, type: "GRANT_EXPIRING", title: "Shared access expires soon", message: `Access to ${label} expires in seven days.`, data: { grantId: grant.id, expiresAt: grant.expiresAt.toISOString() } });
+    if (grant.request?.requesterUserId) await notifyUsers([{ userId: grant.request.requesterUserId, organisationId: grant.organisationId, eventKey: `grant-expiry-requester:${grant.id}:${grant.request.requesterUserId}`, type: "GRANT_EXPIRING", title: "Shared access expires soon", message: `Your access to ${label} expires in seven days.`, data: { grantId: grant.id, expiresAt: grant.expiresAt.toISOString() } }]);
+  }
+  return grants.length;
 }

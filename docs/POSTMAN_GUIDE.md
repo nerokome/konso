@@ -2,6 +2,8 @@
 
 This document describes the running API as implemented in `src/`. It includes setup, auth, access rules, every route, example requests and response shapes, and the end-to-end document sharing flow.
 
+For focused instructions on notifications and webhooks, see [Notifications and Webhooks Guide](Notifications%20and%20Webhooks%20Guide.md).
+
 Import [`Konso API.postman_collection.json`](Konso%20API.postman_collection.json) into Postman for ready-made requests. It currently automates token and ID capture for the principal workflow. Set `baseUrl` to your API host; the default is `http://localhost:5000`.
 
 ## 1. Start the API
@@ -401,6 +403,8 @@ Express applies Helmet, configured CORS, request logging, and JSON parsing befor
 
 ## 7. Troubleshooting
 
+## 7. Troubleshooting
+
 - `401`: send the right Bearer token and log in again when it expires.
 - `403`: check `x-organisation-id`, membership role, organisation verification, and the document grant.
 - `400`: check JSON spelling/case, UUIDs, required upload headers, raw binary body, and ISO 8601 expiry.
@@ -410,3 +414,7 @@ Express applies Helmet, configured CORS, request logging, and JSON parsing befor
 - If registering again returns conflict, use the corresponding Login request in the collection.
 
 The collection's prepared upload request needs a local file selected in **Body → binary**. Its captured IDs and tokens live in collection variables; reset or update them when changing test accounts or databases.
+
+## Notifications and webhooks
+
+The Notifications and Webhooks folder in the Postman collection covers user notifications and organisation webhook management. Webhook routes require an owner/admin membership. The webhook secret appears once in the create response; store it securely and verify delivery using HMAC-SHA256 over the raw body.

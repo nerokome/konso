@@ -17,6 +17,10 @@ Node.js + TypeScript REST API with Express, PostgreSQL, Prisma, and JWT authenti
 
 `prisma/schema.prisma` is the canonical database schema. To change it during development, edit the schema and run `npm run db:migrate -- --name describe_the_change`; Prisma creates a migration and applies it to the configured PostgreSQL database. For production, apply checked-in migrations with `npm run db:deploy`.
 
+For Render, use a build command that runs `npm install && npm run build && npm run db:deploy` and start with `npm start`. Keep the Render `DATABASE_URL` set to the intended PostgreSQL database; the deploy step applies checked-in migrations, including notification and webhook tables.
+
+See [Notifications and Webhooks Guide](docs/Notifications%20and%20Webhooks%20Guide.md) for endpoint examples, Postman steps, and HMAC signature verification.
+
 ## Code structure
 
 - `src/services` contains database and business operations.
@@ -56,7 +60,7 @@ The development seed refuses to run in production. To provision or rotate the pl
 
 `npm run db:production:maintenance` performs a read-only inventory of the specific frontend test accounts and organisations listed in `prisma/productionMaintenance.ts`. Adding `-- --apply` deletes only those exact accounts and organisations (plus linked access data) and rotates `superadmina@example.com` to a generated password printed once in the command output. Run it only with the intended production database URL and store the generated password securely.
 
-Admin API integration tests are in `tests/admin.test.ts`. Run them only against a disposable migrated database by setting `TEST_DATABASE_URL`, then run `npm test`.
+Admin, notification, and webhook API integration tests are in `tests/`. Run them only against a disposable migrated database by setting `TEST_DATABASE_URL`, then run `npm test`.
 
 ### Documents and access requests
 

@@ -11,7 +11,7 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test tests/admin.test.ts",
+    "test": "tsx --test tests/admin.test.ts tests/notifications-webhooks.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

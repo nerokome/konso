@@ -5,12 +5,18 @@ import { requireAuth } from "../middleware/auth.js";
 import { requireOrganisationRole, requirePlatformRole } from "../middleware/permissions.js";
 import * as controller from "../controllers/organisationsController.js";
 import { validateRequest } from "../middleware/validateRequest.js";
+import { body, param } from "express-validator";
+import * as webhooks from "../controllers/webhooksController.js";
+import { webhookEvents } from "../services/webhookService.js";
 import { addMemberSchema, createInvitationSchema, createOrganisationSchema, memberIdsSchema, memberRoleSchema, organisationIdSchema, resubmitVerificationSchema, updateOrganisationSchema, verificationSchema } from "../validations/organisations/organisation.validation.js";
 
 export const organisationsRouter = Router();
 organisationsRouter.use(requireAuth);
 
 organisationsRouter.post("/", createOrganisationSchema(), validateRequest, asyncHandler(controller.createOrganisation));
+organisationsRouter.get("/:organisationId/webhooks", param("organisationId").isUUID(), validateRequest, asyncHandler(webhooks.list));
+organisationsRouter.post("/:organisationId/webhooks", param("organisationId").isUUID(), body("url").isURL({ protocols: ["https"], require_protocol: true }), body("events").isArray({ min: 1, max: webhookEvents.length }), body("events.*").isIn(webhookEvents), validateRequest, asyncHandler(webhooks.create));
+organisationsRouter.delete("/:organisationId/webhooks/:webhookId", param("organisationId").isUUID(), param("webhookId").isUUID(), validateRequest, asyncHandler(webhooks.remove));
 organisationsRouter.get("/", asyncHandler(controller.listOrganisations));
 organisationsRouter.get("/verified", asyncHandler(controller.listVerifiedOrganisations));
 organisationsRouter.get("/:organisationId/documents/catalog", organisationIdSchema(), validateRequest, asyncHandler(controller.listDocumentCatalog));
