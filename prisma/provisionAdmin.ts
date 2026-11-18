@@ -7,8 +7,8 @@ const prisma = new PrismaClient();
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
-  if (!email || !password || password.length < 12) {
-    throw new Error("Set ADMIN_EMAIL and an ADMIN_PASSWORD of at least 12 characters before provisioning.");
+  if (!email || !password || password.length < 8) {
+    throw new Error("Set ADMIN_EMAIL and an ADMIN_PASSWORD of at least 8 characters before provisioning.");
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required.");
 
